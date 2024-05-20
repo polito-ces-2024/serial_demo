@@ -2,6 +2,7 @@ package org.example;
 import com.fazecast.jSerialComm.SerialPort;
 
 import java.io.UnsupportedEncodingException;
+import java.util.Arrays;
 
 public class Main {
     public static void main(String[] args) {
@@ -15,7 +16,7 @@ public class Main {
                         comPort.openPort();
                         comPort.setComPortTimeouts(SerialPort.TIMEOUT_READ_BLOCKING, 1000, 0);
                         // Set serial port parameters
-                        comPort.setBaudRate(9600);
+                        comPort.setBaudRate(115200);
                         comPort.setNumDataBits(8);
                         comPort.setNumStopBits(1);
                         comPort.setParity(SerialPort.NO_PARITY);
@@ -33,7 +34,7 @@ public class Main {
 
                         byte[] readBuffer = new byte[b.length];
                         int numRead = comPort.readBytes(readBuffer, readBuffer.length);
-
+                        System.out.println(Arrays.toString(readBuffer));
                         String result = new String(readBuffer, 0, numRead);
                         System.out.println("Read " + numRead + " bytes. (" + result + ")");
                         comPort.closePort();
