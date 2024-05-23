@@ -3,7 +3,10 @@ import com.fazecast.jSerialComm.SerialPort;
 
 import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
+import java.util.concurrent.*;
 
+import java.util.ArrayList;
+import java.util.List;
 public class Main {
     public static SerialPort detectHardwarePort() throws InterruptedException {
         SerialPort ports[] = SerialPort.getCommPorts();
@@ -37,7 +40,70 @@ public class Main {
         return null;
     }
     public static void main(String[] args) {
+
+        List<Callable<String>> callables = new ArrayList<>();
+        callables.add(() -> {
+            // Simulate long-running task
+            Thread.sleep(10000);
+            return "Result from task 1";  // Change to null to simulate returning null
+        });
+        callables.add(() -> {
+            // Simulate long-running task
+            Thread.sleep(50);
+            return null; // This task returns null
+        });
+        callables.add(() -> {
+            // Simulate long-running task
+            Thread.sleep(500);
+            return "Result from task 3";
+        });
+
+        // Create an ExecutorService
+        ExecutorService executorService = Executors.newFixedThreadPool(3);
+
+        try {
+            String result = getFirstNonNullResult(executorService, callables);
+            if (result != null) {
+                System.out.println("First non-null result: " + result);
+            } else {
+                System.out.println("No non-null result found.");
+            }
+        } finally {
+            // Shutdown the executor service
+            executorService.shutdown();
+        }
+    }
+
+    private static String getFirstNonNullResult(ExecutorService executorService, List<Callable<String>> callables) {
+        try {
+            List<Future<String>> futures = executorService.invokeAll(callables);
+
+            for (Future<String> future : futures) {
                 try {
+                    String result = future.get();
+                    if (result != null) {
+                        // Cancel other futures
+                        for (Future<String> f : futures) {
+                            if (!f.isDone()) {
+                                f.cancel(true);
+                            }
+                        }
+                        return result;
+                    }
+                } catch (ExecutionException | InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+
+          /*
+                try {
+
                     SerialPort comPort = detectHardwarePort();
 
 
@@ -81,6 +147,6 @@ public class Main {
                 } catch (Exception e) {
                     System.out.println(e);
                 }
+*/
 
-    }
 }
