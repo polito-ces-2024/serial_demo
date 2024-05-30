@@ -1,20 +1,36 @@
 package org.example;
 import com.fazecast.jSerialComm.SerialPort;
-import org.bouncycastle.asn1.pkcs.PrivateKeyInfo;
 import org.bouncycastle.asn1.x509.SubjectPublicKeyInfo;
 import org.bouncycastle.openssl.PEMKeyPair;
 import org.bouncycastle.openssl.PEMParser;
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 
 import java.io.IOException;
+import java.io.Reader;
 import java.io.StringReader;
-import java.security.KeyPair;
-import java.security.PrivateKey;
-import java.security.PublicKey;
-import java.security.Security;
+import java.security.*;
 import java.security.interfaces.ECKey;
+import java.security.spec.ECGenParameterSpec;
 import java.util.Arrays;
-
+import java.math.BigInteger;
+import java.security.PublicKey;
+import java.security.PrivateKey;
+import java.security.KeyFactory;
+import java.security.Security;
+import java.security.KeyPairGenerator;
+import java.security.KeyPair;
+import java.security.SecureRandom;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.ECGenParameterSpec;
+import javax.crypto.KeyAgreement;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import org.bouncycastle.jce.interfaces.ECPublicKey;
+import org.bouncycastle.jce.interfaces.ECPrivateKey;
+import org.bouncycastle.jce.ECNamedCurveTable;
+import org.bouncycastle.jce.spec.ECParameterSpec;
+import org.bouncycastle.jce.spec.ECPublicKeySpec;
+import org.bouncycastle.jce.spec.ECPrivateKeySpec;
+import org.bouncycastle.math.ec.ECPoint;
 
 public class Main {
     final protected static char[] hexArray = "0123456789abcdef".toCharArray();
@@ -35,7 +51,7 @@ public class Main {
         for (byte b : m) {
             sb.append(String.format("0x%02X, ", b));
         }
-        return "[" + sb.toString() + "]";
+        return "[" + sb.toString() + "] length:" + m.length;
     }
 
 
@@ -53,15 +69,12 @@ public class Main {
         }
     }
     public static KeyPair readFull(String pemString) throws  Exception {
-        try (PEMParser pemParser = new PEMParser(new StringReader(pemString))) {
-            JcaPEMKeyConverter converter = new JcaPEMKeyConverter().setProvider("BC");
-            Object object = pemParser.readObject();
-            if (object instanceof PEMKeyPair) {
-                PEMKeyPair keyPair = (PEMKeyPair) object;
-                return new KeyPair(converter.getPublicKey(keyPair.getPublicKeyInfo()), converter.getPrivateKey(keyPair.getPrivateKeyInfo()));
-            }
-            throw new IllegalArgumentException("Invalid PEM string: " + pemString);
-        }
+        Security.addProvider(new org.bouncycastle.jce.provider.BouncyCastleProvider());
+        Reader rdr = new StringReader (pemString);
+        Object parsed = new org.bouncycastle.openssl.PEMParser(rdr).readObject();
+        KeyPair pair = new org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter().getKeyPair((org.bouncycastle.openssl.PEMKeyPair)parsed);
+        System.out.println (pair.getPrivate().getAlgorithm());
+        return pair;
     }
     public static PublicKey readPublicKeyFromPemString(String pemString) throws IOException {
         try (PEMParser pemParser = new PEMParser(new StringReader(pemString))) {
@@ -73,6 +86,50 @@ public class Main {
             }
             throw new IllegalArgumentException("Invalid PEM string: " + pemString);
         }
+    }
+
+    public static byte [] savePrivateKey (PrivateKey key) throws Exception
+    {
+        //return key.getEncoded();
+
+        ECPrivateKey eckey = (ECPrivateKey)key;
+        return eckey.getD().toByteArray();
+    }
+    public static PrivateKey loadPrivateKey (byte [] data) throws Exception
+    {
+        //KeyFactory kf = KeyFactory.getInstance("ECDH", "BC");
+        //return kf.generatePrivate(new PKCS8EncodedKeySpec(data));
+
+        ECParameterSpec params = ECNamedCurveTable.getParameterSpec("prime256v1");
+        ECPrivateKeySpec prvkey = new ECPrivateKeySpec(new BigInteger(data), params);
+        KeyFactory kf = KeyFactory.getInstance("ECDH", "BC");
+        return kf.generatePrivate(prvkey);
+    }
+    public static PublicKey loadPublicKey (byte [] data) throws Exception
+    {
+		/*KeyFactory kf = KeyFactory.getInstance("ECDH", "BC");
+		return kf.generatePublic(new X509EncodedKeySpec(data));*/
+
+        ECParameterSpec params = ECNamedCurveTable.getParameterSpec("prime256v1");
+        ECPublicKeySpec pubKey = new ECPublicKeySpec(
+                params.getCurve().decodePoint(data), params);
+        KeyFactory kf = KeyFactory.getInstance("ECDH", "BC");
+        return kf.generatePublic(pubKey);
+    }
+    public static byte [] savePublicKey (PublicKey key) throws Exception
+    {
+        //return key.getEncoded();
+
+        ECPublicKey eckey = (ECPublicKey)key;
+        return eckey.getQ().getEncoded(false);
+    }
+    public static void doECDH (String name, byte[] dataPrv, byte[] dataPub) throws Exception
+    {
+        KeyAgreement ka = KeyAgreement.getInstance("ECDH", "BC");
+        ka.init(loadPrivateKey(dataPrv));
+        ka.doPhase(loadPublicKey(dataPub), true);
+        byte [] secret = ka.generateSecret();
+        System.out.println(name + bytesToHex(secret));
     }
     public static void main(String[] args) {
         //System.out.println(HardwareDetector.detectHardware());
@@ -92,10 +149,14 @@ public class Main {
         PrivateKey devicePriv = readPrivateKeyFromPemString(privKeyDevice);
 
         KeyPair demo = readFull(privKeyDevice);
-        System.out.println(demo.getPrivate());
+        System.out.println("Keypair " + demo.getPrivate());
+        KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("ECDH");
+        keyPairGenerator.initialize(new ECGenParameterSpec("secp256r1"));
 
+        KeyPair keyPair = keyPairGenerator.generateKeyPair();
+            ECPrivateKey pk = (ECPrivateKey) keyPair.getPrivate();
+            System.out.println("pk: " + pk);
         PublicKey devicePublic = readPublicKeyFromPemString(pubkeyDevice);
-
         KeyPair pairDevice = new KeyPair(devicePublic, devicePriv);
 
         PrivateKey pcPriv = readPrivateKeyFromPemString(privKeyPc);
@@ -107,10 +168,29 @@ public class Main {
         System.out.println("Pc " + pairPc.getPrivate());
         System.out.println("Pc " + pairPc.getPublic());
 
-        System.out.println("Device " + pairDevice.getPrivate());
-    System.out.println("Device " + pairDevice.getPublic());
-            ECKey privEC = (ECKey) PemUtils.readPrivateKeyFromFile("/home/riccardo/IdeaProjects/serial_demo/src/main/resources/private_key_ecc.pem", "EC");
-            System.out.println(privEC.toString());
+        System.out.println("Private key bytes of device (ignore first)" +  arr(savePrivateKey(pairDevice.getPrivate())));
+        System.out.println("Public key bytes of device (ignore first)" +  arr(savePublicKey(pairDevice.getPublic())));
+
+            System.out.println("Private key bytes of PC (ignore first)" +  arr(savePrivateKey(pairPc.getPrivate())));
+            System.out.println("Public key bytes of PC (ignore first)" +  arr(savePublicKey(pairPc.getPublic())));
+
+
+
+            //System.out.println("Device " + pairDevice.getPrivate());
+   // System.out.println("Device " + pairDevice.getPublic());
+
+
+            byte [] dataPrvA = savePrivateKey(pairDevice.getPrivate());
+            byte [] dataPubA = savePublicKey(pairDevice.getPublic());
+            byte [] dataPrvB = savePrivateKey(pairDevice.getPrivate());
+            byte [] dataPubB = savePublicKey(pairDevice.getPublic());
+
+
+
+            doECDH("PC's secret: ", dataPrvA, dataPubB);
+            doECDH("Device's secret:   ", dataPrvB, dataPubA);
+            //ECKey privEC = (ECKey) PemUtils.readPrivateKeyFromFile("/home/riccardo/IdeaProjects/serial_demo/src/main/resources/private_key_ecc.pem", "EC");
+           // System.out.println(privEC.toString());
            // System.out.println(privEC.getParameters());
 /*
             System.out.println("Device public " + arr(devicePublic.getEncoded()) + " length " + devicePublic.getEncoded().length);
